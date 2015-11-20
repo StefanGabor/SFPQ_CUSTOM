@@ -16,8 +16,8 @@
 *                    : OPTIONS[1] : always .t.
 *                    : OPTIONS[2] : Permanent status only (logical)
 *                    : OPTIONS[3] : AsOf date
-*                    : 
-*                    : 
+*                    : Test 12345
+*                    : T123
 *                    : 
 *                    :
 *==========================================================
