@@ -6,17 +6,17 @@
 *  Code page.........: 1252 (WINDOWS)
 *  Copyright.........: (c) Carver Technologies 2014
 *  						:
-*	Precondition		: The bank entitlement posting programs, 
-*							: SFPQ in particular, take a snapshot of all 
-* 							: parameters that are involved in calculating 
-*							: a given bank entitlement and saves all parameters, 
+*  Precondition	     : The bank entitlement posting programs, 
+*		     : SFPQ in particular, take a snapshot of all 
+* 		     : parameters that are involved in calculating 
+*		     : a given bank entitlement and saves all parameters, 
 *                    : through an object, in the AUDITE table. 
 *							:
 *  Description.......: Moreover, the program takes the entries from 
-*							: the AUDITE table, parses the objects' properties 
-*							: and data, and builds several cursors which are 
-*							: ultimately used to present this information 
-*							: into a dashboard to a user friendly format.
+*		     : the AUDITE table, parses the objects' properties 
+*		     : and data, and builds several cursors which are 
+*		     : ultimately used to present this information 
+*		     : into a dashboard to a user friendly format.
 *                    :
 *                    : *** CUSTOM VERSION FOR SFPQ ***
 *                    :
@@ -27,6 +27,8 @@
 *  Major modifs......: NONE 
 *                    : 
 *                    : 
+*                    : 
+*                    : Test 123
 *                    : 
 *							:
 *======================================================================
