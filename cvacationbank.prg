@@ -73,20 +73,21 @@ nSEB_DAYSWKPERYEAR = 260 			&& SEB maximum yearly working days
 nAPMCP_DAYSWKPERYEAR = 248.6		&& APMCP maximum yearly working days
 nWorkDaysYear = 0.0 					&& How many working days in a year 
 cVacBankCursor = ""					&& Place holder for TVac cursor 
+lInquiryOnly = .f.					&& Time bank balance inquiry only 
 
 nSEB_UNION_LEAVE_DAYS=30			&& Union leave SEB 
 nAPMCP_UNION_LEAVE_DAYS=25			&& Union leave APMCP
 nSEB_FLEX_HOURS=6.5					&& Flex SEB 
 
-cLogStatus 	= "startlog.txt" 		&& start logging 
-cLogPath = "\TEMP\" 					&& log folder 
-_DEBUG = .T.							&& set .T. for debugging 
+cLogStatus = "startlog.txt" 		&& start logging 
+cLogPath = "" 							&& log folder 
+_DEBUG = .f.							&& set .T. for debugging 
 oRS = null								&& Object container 
 
 *=========================================================
 #define MAIN_ENTRY    
 *=========================================================
-procedure DepositBeginningOfYear(toRS As Object)
+procedure DepositBeginningOfYear(toRS As Object, pcSwitches)
 *** This is the main entry in the program and it matches 
 * the event which trigger this action. 
 * For example, in this case, the action is triggered from 
@@ -98,6 +99,16 @@ procedure DepositBeginningOfYear(toRS As Object)
 if type("toRS")!="O" or isnull(toRS)
 	this.WriteLog("DepositBeginningOfYear() - Invalid Object!")
 	return toRS 
+endif 
+
+if type("pcSwitches") = "C"
+	this.lInquiryOnly = !empty(pcSwitches) and "/VIEWONLY"$pcSwitches
+endif
+
+*** Set the log path 
+if type("goIni.Temp") = "C" ;
+and !empty(goIni.Temp)
+	this.cLogPath = addbs(alltrim(goIni.Temp))
 endif 
 
 this.oRS = toRS
@@ -219,8 +230,8 @@ endif
 .nSenYears = int(tnSenMths/12)
 
 *** Different date field for seniority 
-if !empty(qAPLAN.AP_SENDT)
-	ldSeniorField = upper(trim(qAPLAN.AP_SENDT))
+if used("vPERS") and !empty(alltrim(qAPLAN.AP_SENDT))
+	ldSeniorField = upper(alltrim(qAPLAN.AP_SENDT))
 	ldSeniorField = strtran(ldSeniorField, "PERS", "vPERS")
 	ldSeniorField = evaluate(ldSeniorField)
 
@@ -232,26 +243,29 @@ endif
 .dOriginalHiredDt = qqJH.E_ORIGHIRE 
 
 *** Current Year Entitlement 
-.dStartDt = qAPLAN.AP_EFFDT
-.dEndDt = qAPLAN.AP_ENDDT
+if empty(.dStartDt)
+	.dStartDt = qAPLAN.AP_EFFDT
+endif 	
+if empty(.dEndDt)
+	.dEndDt = qAPLAN.AP_ENDDT
+endif 
 
 *** Last year entitlement dates 
-.dLYStartDt = ;
-	MONDAY(date(year(.dStartDt)-1,month(.dStartDt),day(.dStartDt))+7, 7)
-.dLYEndDt = .dStartDt - 1 
+.dLYStartDt = gomonth(.dStartDt, -12)
+.dLYEndDt = gomonth(.dEndDt, -12)
 
 *** Get the counter
 .cTCNT = trim(qAPLAN.AP_YTCNT)
 
 *** Get MAX & MIN of the plan 
 if val(qAPLAN.AP_BALMIN) != 0 ;
-or empty(qAPLAN.AP_BALMIN)
+or empty(alltrim(qAPLAN.AP_BALMIN))
 	.nPlanBalMin = val(qAPLAN.AP_BALMIN)
 else 
 	.nPlanBalMin = evaluate(qAPLAN.AP_BALMIN)
 endif 	
 if val(qAPLAN.AP_BALMAX) != 0 ;
-or empty(qAPLAN.AP_BALMAX)
+or empty(alltrim(qAPLAN.AP_BALMAX))
 	.nPlanBalMax = val(qAPLAN.AP_BALMAX)
 else 
 	.nPlanBalMax = evaluate(qAPLAN.AP_BALMAX)
@@ -1806,10 +1820,10 @@ endif
 
 with this 
 
-if !._DEBUG
+if this.lInquiryOnly
 	return 
 endif 
-
+	
 =amembers(gaRS, toR, 1)
 for lnN = 1 to alen(gaRS, 1)
 	lcAsisField = "toR." + alltrim(gaRS[lnN, 1])

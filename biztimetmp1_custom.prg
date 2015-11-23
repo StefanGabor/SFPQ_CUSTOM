@@ -69,11 +69,29 @@ cBANK_REALTIME_ENTITLEMENT="1,2,5,7"		&& Banks real time entitlement
 cVIRTUAL_BANK_DEPOSIT = "1"					&& Banks real time entitlement  
 cDepositSurplusIntoBankids = "9"
 
+nTimeBankFullDayHRS = 6.5						&& 1 Full day = how many hours 
+
 cLogStatus = "startlog.txt" 					&& triggers for start logging 
-cLogPath = "\TEMP\" 								&& log folder 
+cLogPath = ""		 								&& log folder 
 _DEBUG = .T.										&& set .T. for debugging 
 
 nRoundInOutTo = 0                   		&& default rounding  
+
+*=========================================================
+**** HOT FIX **** OVERRIDE DEFAULT -- ERROR 13.  
+*=========================================================
+procedure UpdateBankBalances(pcSwitches, lcAlias, ;
+			 lcTimsumAlias, lcAplanAlias)
+
+if !used(lcAplanAlias)
+	store null to loBizAplan, loCsrAplan
+
+	loBizAplan = this.oBizMgr.GetBiz("APLAN")
+	loCsrAplan = loBizAplan.GetList("/CURSOR=qAplan")
+	index on AP_PLANID tag AP_PLANID
+endif 
+
+return dodefault(pcSwitches,lcAlias,lcTimsumAlias,lcAplanAlias)
 
 *=========================================================
 #define SCHEDULE_ROUNDING_SCHEMA_HOTFIX
@@ -85,6 +103,15 @@ return lcFromDtm
 *=========================================================
 procedure AnalyseInout_RoundOut(lcToDTM)
 return lcToDTM
+
+*=========================================================
+procedure AnalyseInOut_BreakMin(lcFromDTM, lcToDTM)
+*** Returns the length in minutes of lunch break
+*
+local lnBreakMin
+lnBreakMin = 0
+
+return lnBreakMin
 
 *=========================================================
 #define SCHEDULE_ROUNDING_SCHEMA_AnalyseInOut
@@ -109,7 +136,13 @@ if used("vNew") and !empty(vNew.TT_UNIQID)
 
 	return llReturn 
 endif 
-	
+
+*** Filter by type of transactions
+if type("TT_OPT") = "U" ;
+or !inlist(TT_OPT, C_TTPREGOPT)
+	return llReturn 
+endif 
+
 *** Filter by JOBCAT 
 if inset(qJobhist.H_JOBCAT, this.cJobCatId)
 	llReturn = .t.
@@ -127,9 +160,9 @@ procedure AnalyseInOut_AdjustStartShift(tlShiftStartUp, ;
 		tlShiftStartDown, tlShiftStartDownLatency)
 *** Adjust the start of the shift UP & DOWN 
 local lnStartOfShiftHM, lnSchedStartOfShiftHM
-local lcStartOfShiftHM
+local lcStartOfShiftHM, lcSchedStartOfShiftHM
 
-store "" to lcStartOfShiftHM
+store "" to lcStartOfShiftHM, lcSchedStartOfShiftHM
 store 0 to lnStartOfShiftHM, lnSchedStartOfShiftHM
 
 if !tlShiftStartUp ;
@@ -142,12 +175,20 @@ if tlShiftStartUp
 	*** if on schedule .UsedHM is empty 
 	lcStartOfShiftHM = left(.UsedHM,4)
 	lnStartOfShiftHM = HMtoM(alltrim(lcStartOfShiftHM))
-	lnSchedStartOfShiftHM = HMtoM(alltrim(loSched.StartHM))
+
+	*** Take the FLEX start shift when configured 
+	if type("loSched.FlexStartHM") != "U" and !empty(loSched.FlexStartHM) 
+		lnSchedStartOfShiftHM = HMtoM(alltrim(loSched.FlexStartHM))
+		lcSchedStartOfShiftHM = alltrim(loSched.FlexStartHM)
+	else 	
+		lnSchedStartOfShiftHM = HMtoM(alltrim(loSched.StartHM))
+		lcSchedStartOfShiftHM = alltrim(loSched.StartHM)
+	endif 
 
 	*** Round the shift start UP to the shedule 
 	if lnStartOfShiftHM < lnSchedStartOfShiftHM ;
 	and castx(lnSchedStartOfShiftHM-lnStartOfShiftHM, "N")<=this.nRndUpShiftStartMM
-		.UsedHM = stuff(.UsedHM, 1, 4, loSched.StartHM)
+		.UsedHM = stuff(.UsedHM, 1, 4, lcSchedStartOfShiftHM)
 	endif 
 
 	*** debug 
@@ -156,6 +197,8 @@ if tlShiftStartUp
 	this.WriteLog("AnalyseInOut_AdjustStartShift() - " + ;
 			"lcStartOfShiftHM = " + transform(lcStartOfShiftHM))
 	this.WriteLog("AnalyseInOut_AdjustStartShift() - " + ;
+			"lcSchedStartOfShiftHM = " + transform(lcSchedStartOfShiftHM))
+	this.WriteLog("AnalyseInOut_AdjustStartShift() - " + ;
 			"lnStartOfShiftHM = " + transform(lnStartOfShiftHM))
 	this.WriteLog("AnalyseInOut_AdjustStartShift() - " + ;
 			"lnSchedStartOfShiftHM = " + transform(lnSchedStartOfShiftHM))
@@ -163,16 +206,16 @@ endif
 
 
 *** Adjust the start of shift time DOWN to the schedule 
-if (tlShiftStartDown or tlShiftStartDownLatency)
+if tlShiftStartDown
 	*** if on schedule .UsedHM is empty 
 	lcStartOfShiftHM = left(.UsedHM,4)
 	lnStartOfShiftHM = HMtoM(alltrim(lcStartOfShiftHM))
 	lnSchedStartOfShiftHM = HMtoM(alltrim(loSched.StartHM))
 
-	*** Round the shift start DOWN to the shedule 
+	*** Round the shift start DOWN to the schedule 
 	if lnStartOfShiftHM > lnSchedStartOfShiftHM ;
 	and castx(lnStartOfShiftHM-lnSchedStartOfShiftHM, "N") <= ;
-		this.nRndDownShiftStartMM+this.nRndDownShiftStartLatencyMM 
+			this.nRndDownShiftStartMM
 		
 		.UsedHM = stuff(.UsedHM, 1, 4, loSched.StartHM)
 	endif 
@@ -188,6 +231,55 @@ if (tlShiftStartDown or tlShiftStartDownLatency)
 			"lnSchedStartOfShiftHM = " + transform(lnSchedStartOfShiftHM))
 endif 
 
+
+*** set step on 
+*** Adjust the start of shift time DOWN regardless 
+* of the punch time - custom for SFPQ.
+if tlShiftStartDownLatency
+	*** if on schedule .UsedHM is empty 
+	lcStartOfShiftHM = left(.UsedHM,4)
+	lnStartOfShiftHM = HMtoM(alltrim(lcStartOfShiftHM))
+
+	*** Take the FLEX start shift when configured 
+	if type("loSched.FlexStartHM") != "U" and !empty(loSched.FlexStartHM) 
+		lnSchedStartOfShiftHM = HMtoM(alltrim(loSched.FlexStartHM))
+	else
+		lnSchedStartOfShiftHM = HMtoM(alltrim(loSched.StartHM))
+	endif 
+		
+	lnStartOfShiftHM = lnStartOfShiftHM - ;	
+								this.nRndDownShiftStartLatencyMM
+
+	*** Remove latency only if the start time 
+	* is below the scheduled start time 
+	if lnStartOfShiftHM < lnSchedStartOfShiftHM 
+		lnStartOfShiftHM = lnSchedStartOfShiftHM
+	endif 
+										
+	*** Normalize to format HH:MM 
+	lcStartOfShiftHM = MtoHM(lnStartOfShiftHM, "/NODELIM/LEN=4") 
+	if empty(left(lcStartOfShiftHM, 1))
+		lcStartOfShiftHM = "0" + substr(lcStartOfShiftHM, 2)
+	endif 
+	if !empty(lcStartOfShiftHM)
+		.UsedHM = stuff(.UsedHM, 1, 4, lcStartOfShiftHM)
+	endif 
+
+	*** debug 
+	this.WriteLog("AnalyseInOut_AdjustStartShift() - " + ;
+			"lnIntervals = " + transform(lnIntervals))
+	this.WriteLog("AnalyseInOut_AdjustStartShift() - " + ;
+			"lcStartOfShiftHM = " + transform(lcStartOfShiftHM))
+	this.WriteLog("AnalyseInOut_AdjustStartShift() - " + ;
+			"lnStartOfShiftHM = " + transform(lnStartOfShiftHM))
+	this.WriteLog("AnalyseInOut_AdjustStartShift() - " + ;
+			"lnSchedStartOfShiftHM = " + transform(lnSchedStartOfShiftHM))
+	this.WriteLog("AnalyseInOut_AdjustStartShift() - " + ;
+			"nRndDownShiftStartLatencyMM = " + ;
+			transform(this.nRndDownShiftStartLatencyMM))
+
+endif 
+
 return 
 
 *=========================================================
@@ -195,15 +287,15 @@ procedure AnalyseInOut_AdjustEndShift(tlShiftEndUp, ;
 		tlShiftEndDown)
 *** Adjust the end of the shift UP & DOWN 
 local lnEndOfShiftHM, lnSchedEndOfShiftHM
-local lcEndOfShiftHM
+local lcEndOfShiftHM, lcSchedEndOfShiftHM
 
-store "" to lcEndOfShiftHM
+store "" to lcEndOfShiftHM, lcSchedEndOfShiftHM
 store 0 to lnEndOfShiftHM, lnSchedEndOfShiftHM
 
 if !tlShiftEndUp and !tlShiftEndDown
 	return 
 endif 
-	
+
 *** Adjust the end of shift time UP to the schedule 
 if tlShiftEndUp 
 	lcEndOfShiftHM = right(mline(.UsedHM,lnIntervals),4)
@@ -227,17 +319,24 @@ if tlShiftEndUp
 			"lnSchedEndOfShiftHM = " + transform(lnSchedEndOfShiftHM))
 endif 
 
-
 *** Adjust the end of shift time DOWN to the schedule 
 if tlShiftEndDown  
 	lcEndOfShiftHM = right(mline(.UsedHM,lnIntervals),4)
 	lnEndOfShiftHM = HMtoM(alltrim(lcEndOfShiftHM))
-	lnSchedEndOfShiftHM = HMtoM(alltrim(loSched.EndHM))
+
+	*** Take the FLEX start shift when configured 
+	if type("loSched.FlexStartHM") != "U" and !empty(loSched.FlexStartHM) 
+		lnSchedEndOfShiftHM = HMtoM(alltrim(loSched.FlexEndHM))
+		lcSchedEndOfShiftHM = alltrim(loSched.FlexEndHM)
+	else 	
+		lnSchedEndOfShiftHM = HMtoM(alltrim(loSched.EndHM))
+		lcSchedEndOfShiftHM = alltrim(loSched.EndHM)
+	endif 
 
 	*** Round the shift end DOWN to the shedule 
 	if lnEndOfShiftHM > lnSchedEndOfShiftHM ;
 	and castx(lnEndOfShiftHM-lnSchedEndOfShiftHM, "N")<=this.nRndDownShiftEndMM
-		.UsedHM = substr(.UsedHM,1,len(.UsedHM)-4)+loSched.EndHM
+		.UsedHM = substr(.UsedHM,1,len(.UsedHM)-4)+lcSchedEndOfShiftHM
 	endif 
 
 	*** debug 
@@ -245,6 +344,8 @@ if tlShiftEndDown
 			"lnIntervals = " + transform(lnIntervals))
 	this.WriteLog("AnalyseInOut_AdjustEndShift() - " + ;
 			"lcEndOfShiftHM = " + transform(lcEndOfShiftHM))
+	this.WriteLog("AnalyseInOut_AdjustEndShift() - " + ;
+			"lcSchedEndOfShiftHM = " + transform(lcSchedEndOfShiftHM))
 	this.WriteLog("AnalyseInOut_AdjustEndShift() - " + ;
 			"lnEndOfShiftHM = " + transform(lnEndOfShiftHM))
 	this.WriteLog("AnalyseInOut_AdjustEndShift() - " + ;
@@ -423,7 +524,6 @@ procedure AnalyseInOut_Init()
 * [SC_RULES] field and save their values to 
 * class' properties 
 *
-local array laRoundSchema(20) 
 local lnRSchemaCnt, lcProperty, lnPropertyValue, lcCommand
 
 store 0 to lnRSchemaCnt, lnPropertyValue
@@ -445,7 +545,13 @@ if empty(loSched.Rules)
 	return 
 endif 
 
-lnRSchemaCnt = parse(loSched.Rules, @laRoundSchema, CRLF, "|", "/ALL")
+*** Set the log path 
+if type("goIni.Temp") = "C" ;
+and !empty(goIni.Temp)
+	this.cLogPath = addbs(alltrim(goIni.Temp))
+endif 
+
+lnRSchemaCnt = alines(laRoundSchema, loSched.Rules, 4 , "|", CRLF)
 if lnRSchemaCnt < 1 
 	return 
 endif 
@@ -507,6 +613,7 @@ endif
 *** Load class' properties from the table 
 this.AnalyseInOut_Init()
 
+*** set step on 
 *** start of shift
 llShiftStartUp = (this.nRndUpShiftStartMM > 0)
 llShiftStartDown = (this.nRndDownShiftStartMM > 0)
@@ -549,6 +656,42 @@ return
 *** Procedures related to saving the expenses
 * from timesheet 
 *=========================================================
+procedure PostBatch_BeforeInsert(lnPersid, llNewPers)
+*** Post expense procedure 
+* Expenses are entered as "PRIME", however we do 
+* not post expenses twice as we usually do with the 
+* regular premium records 
+*
+local llExpenseAccount 
+
+dodefault()
+
+if type("TT__EUNIT")="U" or type("TT__EURATE")="U"
+	return 
+endif 
+
+T__EUNIT = 0
+T__EURATE = 0.0 
+
+llExpenseAccount=ToLogical(tbleval("PRIME", TT_OPT, "TBLC6"))
+if llExpenseAccount ;
+and ( !empty(nvl(TT__EUNIT,0)) OR empty(nvl(TT__EURATE,0)) )
+
+	T_AMT = TT__EUNIT * TT__EURATE
+	T_AMT = iif(goConfig.C_TDRNDUP, ;
+					rndup(m.T_AMT, .01), ;
+					rnd(m.T_AMT, .01))
+		
+	T_UNITRATE = T_AMT
+
+	T__EUNIT = TT__EUNIT
+	T__EURATE = TT__EURATE
+endif 
+
+return 
+endproc
+
+*=========================================================
 procedure Postbatch_FinishPerson(tnPersId)
 *** Use this for posting premiums, etc.
 *
@@ -563,7 +706,6 @@ endif
 with this 
 
 llOk = iif(llOk, .Postbatch_Primes(tnPersId), .f.)
-llOk = iif(llOk, .Postbatch_Expenses(tnPersId), .f.)
 llOk = iif(llOk, .Postbatch_Deposits(tnPersId), .f.)
 
 endwith 
@@ -573,6 +715,7 @@ return llOk
 *=========================================================
 procedure Postbatch_Primes(tnPersId)
 local lnSelect, lcDestination, lnPrimeAMT, lnPrimeRate 
+local llExpenseAccount
 
 store "" to lcDestination
 store 0 to lnPrimeAMT, lnPrimeRate 
@@ -580,14 +723,15 @@ store 0 to lnPrimeAMT, lnPrimeRate
 lnSelect = Select()
 
 scan for TT_PERSID = tnPersId and !eof()
-	if nvl(TT_PRIME,0) > 0 
+
+	llExpenseAccount=ToLogical(tbleval("PRIME", TT_OPT, "TBLC6"))
+	if !llExpenseAccount and nvl(TT_PRIME,0) > 0 ;
 
 		scatter memo memvar 
 
 		lcDestination = tbleval("PRIME", this.cPrimeOPT, "TBLC1")
 		lnPrimeAMT = val(tbleval("PRIME", this.cPrimeOPT, "TBLC2"))
 		lnPrimeRate = val(tbleval("PRIME", this.cPrimeOPT, "TBLC2")) 
-
 
 		m.T_PERSID = m.TT_PERSID
 		m.T_EFFDT  = m.TT_EFFDT
@@ -617,69 +761,19 @@ select(lnSelect)
 return 
 
 *=========================================================
-procedure Postbatch_Expenses(tnPersId)
-local lnSelect, lnUnitRate, lnAMT
-
-store 0 to lnUnitRate, lnAMT
-
-if type("TT__EUNIT") = "U" ;
-or type("TT__EURATE") = "U"
-	return 
-endif 
-	
-lnSelect = Select()
-
-scan for TT_PERSID = tnPersId and !eof()
-	if !empty(TT__EUNIT) and !empty(TT__EURATE)
-
-		scatter memo memvar 
-
-		lnUnitRate = m.TT__EURATE  
-		lnAMT = m.TT__EUNIT * lnUnitRate 
-
-		m.T_PERSID = m.TT_PERSID
-		m.T_EFFDT  = m.TT_EFFDT
-		m.T_UNITCD = "*"
-		m.T_UNIQID = uniqid()
-		m.T_ENTERBY = gcUser
-		m.T_USER = gcUser
-		m.T_ENTERDT = datetime()
-		m.T_DEST = "*"
-		m.T_AMT = lnAMT 
-		m.T_UNITRATE = lnUnitRate 
-		m.T_SOURCE = m.TT_SOURCE 
-		m.T_PROJECT = m.TT_PROJECT 
-		m.T_PAYNO = qJobhist488.H_PAYGRP
-		m.T_ENTITY = evaluate("qJobhist488.H_" + c_tdentity)
-		m.T_OPT = m.TT_OPT
-		m.T_HOURS = 0.0
-		m.T_TYPE = "P"
-		m.T__EUNIT = m.TT__EUNIT
-		m.T__EURATE = m.TT__EURATE 
-
-		Insert Into vTimedt488 From Memvar
-	else
-		loop 
-	endif 
-endscan 
-
-select(lnSelect)
-return 
-
-*=========================================================
 procedure Postbatch_Deposits( tnPersId )
 * Allow the option to accumulate simultaneously 
 * into 1..N bank plans. 
 *
-local lnSelect, llOk 
+local lnSelect, llOk, lnABSAdjAMT
 local lcDEST, lcOPT, lcTYPE, lcTSOURCE, lcBankSet
 local lnUnitRate, lnAMT, lnSenMths, lnSickBanksCnt
-local array laSickBank(1)
 local loSickBank, loSickParm, loPERS
 llOk = .t. 
 
 store "" to lcDEST, lcOPT, lcTYPE, lcBankSet
-store 0 to lnAMT, lnUnitRate, lnSickBanksCnt, lnSenMths
+store 0 to lnAMT, lnUnitRate, lnSickBanksCnt
+store 0 to lnSenMths, lnABSAdjAMT
 store null to loSickBank, loSickParm 
 
 with this 
@@ -708,8 +802,9 @@ if empty(lcBankSet)
 	return 
 endif 
 
+*** set step on 
 *** Put sick banks set into the array  
-lnSickBanksCnt=parse(lcBankSet, @laSickBank, CRLF, " ", "/ALL")
+lnSickBanksCnt = alines(laSickBank, lcBankSet, 4, " ")
 if empty(lnSickBanksCnt)
 	this.WriteLog("Postbatch_Deposits() - " + ;
 		"lnSickBanksCnt = "+transform(lnSickBanksCnt))
@@ -729,7 +824,8 @@ endif
 *** set step on 
 for lnJ = 1 to alen(laSickBank,1)
 	******* DEBUG *******
-	this.WriteLog("Postbatch_Deposits() - tnPersId" + transform(tnPersId))
+	this.WriteLog("Postbatch_Deposits() - tnPersId = " + ;
+			transform(tnPersId))
 	this.WriteLog("Postbatch_Deposits() - " + ;
 			"Processing from laSickBank["+transform(lnJ)+ "] = " + ;	
 			transform(laSickBank[lnJ]))
@@ -951,17 +1047,6 @@ select(lnSelect)
 return tcBankSet
 
 *=========================================================
-procedure AnalyseInOut
-parameters pcSwitches,pnPersid,pdIn,pcInout,poJobhist
-*** DEBUG only 
-local loRs 
-
-loRs = dodefault(pcSwitches,pnPersid,pdIn,pcInout,poJobhist)
-this.SpoolObjectProperties(loRs)
-
-return loRs
-
-*=========================================================
 procedure AnalyseInout_Effdt()
 *** Apply the rounding schema at the very end 
 *
@@ -974,7 +1059,6 @@ endproc
 procedure GetRoundingSchemaObject(toSched)
 local lcCommand, loRS
 local lnPropertyValue, lnRSchemaCnt 
-local array laRoundSchema(20) 
 *
 store "" to lcCommand, lcProperty 
 store 0 to lnRSchemaCnt, lnPropertyValue 
@@ -993,7 +1077,7 @@ endif
 *** Create rounding schema object 
 loRS = this.CreateRoundingSchemaObject(toSched.BaseSchedId)
 
-lnRSchemaCnt = parse(toSched.Rules, @laRoundSchema, CRLF, "|", "/ALL")
+lnRSchemaCnt = alines(laRoundSchema, loSched.Rules, 4, "|", CRLF)
 if lnRSchemaCnt < 1 
 	return null 
 endif 
@@ -1142,7 +1226,10 @@ endwith
 store null to loViewTimeTmp
 return loR 
 
-*==========================================================
+*=========================================================
+#define HELPER_FUNCTIONS
+*** Helper functions 
+*=========================================================
 protected procedure GetTimeBankCollectionObject()
 return this.oBankColl
 
@@ -1188,7 +1275,7 @@ store null to loBizPers, loCsrPers
 select(lnSelect)
 return loRS
 
-*=========================================================
+*==========================================================
 procedure SpoolObjectProperties(toR As Object)
 *** S.G. - Logs all object properies 
 local lcAsisField

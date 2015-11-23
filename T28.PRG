@@ -6,17 +6,17 @@
 *  Code page.........: 1252 (WINDOWS)
 *  Copyright.........: (c) Carver Technologies 2014
 *  						:
-*  Precondition	     : The bank entitlement posting programs, 
-*		     : SFPQ in particular, take a snapshot of all 
-* 		     : parameters that are involved in calculating 
-*		     : a given bank entitlement and saves all parameters, 
+*	Precondition		: The bank entitlement posting programs, 
+*							: SFPQ in particular, take a snapshot of all 
+* 							: parameters that are involved in calculating 
+*							: a given bank entitlement and saves all parameters, 
 *                    : through an object, in the AUDITE table. 
 *							:
 *  Description.......: Moreover, the program takes the entries from 
-*		     : the AUDITE table, parses the objects' properties 
-*		     : and data, and builds several cursors which are 
-*		     : ultimately used to present this information 
-*		     : into a dashboard to a user friendly format.
+*							: the AUDITE table, parses the objects' properties 
+*							: and data, and builds several cursors which are 
+*							: ultimately used to present this information 
+*							: into a dashboard to a user friendly format.
 *                    :
 *                    : *** CUSTOM VERSION FOR SFPQ ***
 *                    :
@@ -28,12 +28,11 @@
 *                    : 
 *                    : 
 *                    : 
-*                    : CREATE T100
-*                    : 
 *							:
 *======================================================================
 ***
 *
+parameters tnPersId 
 
 *** Global variable are needed to interact with 
 * base class "Grd" class refreshing methods.
@@ -42,7 +41,7 @@ public gnPTPersId, gnPTBankId, gdPostedDT, gnPostedBy
 store 0 to gnPTPersId, gnPTBankId, gnPostedBy
 store {} to gdPostedDT
 
-if !GetTemporaryTables()
+if !GetTemporaryTables(tnPersId)
 	return 
 endif 	
 
@@ -100,14 +99,14 @@ do form IDashboard
 return 
 
 *==========================================================
-procedure GetTemporaryTables()
+procedure GetTemporaryTables( tnPersId )
 * Creates several cursors and opens AUDITE table. 
 *
 local lcSql, loCursor, llOk 
 store "" to lcSql 
 store null to loCursor
 
-lcSql = GetSQLQuery()
+lcSql = GetSQLQuery( tnPersId )
 if empty(lcSql)
 	return 
 endif 
@@ -141,24 +140,24 @@ llOk = reccount("vTSAudit") > 0
 return llOk 
 
 *=========================================================
-procedure GetSQLQuery()
+procedure GetSQLQuery( tnPersId )
 *** Procedure that builds the main cursor 
 * with TIMETMP posted transactions. 
 *
 local lcSql, ldStartDT, ldEndDt 
 
 store "" to lcSql
-ldStartDT = date() - (365*2)
+ldStartDT = date() - int(365/4)
 ldEndDt = date() + 15 
 
 text to lcSql noshow pretext 1+4 textmerge 
 	select RowId, AU_KEY, AU_OLDUSER, AU_OLDDTM, 
 		AU_OLDPERS, AU_OLDVAL, AU_NEWVAL, AU_NEWPERS
 	from  Audite
-	where AU_DBF = 'TIMETMP' 
-		and AU_ACTION = 'P'
-		and AU_OLDDTM BETWEEN '<<ldStartDT>>' AND '<<ldEndDt>>'
-	order by RowId
+	where AU_OLDPERS = <<tnPersId>>
+	and AU_OLDDTM BETWEEN '<<ldStartDT>>' AND '<<ldEndDt>>'
+	and AU_DBF = 'TIMETMP' 
+	and AU_ACTION = 'P'
 endtext 
 
 return lcSql 
@@ -167,15 +166,26 @@ procedure RunProcess()
 *** Scans the AUDITE table and fills up 
 * all temporary cursors.
 *
-local lcTable, lcMemo 
+local lcTable, lcMemo, lcComm1, lcComm2
 store "" to lcTable, lcMemo
 
-wait window "Processing.Please wait ..." nowait 
+if gcLang = "F"
+	lcComm1 = "Traitement de l'enregistrement: "
+	lcComm2 = ". Veuillez patienter ..."
+else
+	lcComm1 ="Processing record: "
+	lcComm2 = ". Please wait ..."
+endif 
 
 *** set step on 
 select vTSAudit
 go top in vTSAudit
 scan 
+	wait window lcComm1 + ;
+			transform(recno())+ " / " + ;
+			transform(reccount()) + ;
+			lcComm2 nowait 
+
 	lcMemo = alltrim(vTSAudit.AU_OLDVAL)
 	if !empty(lcMemo)
 		select vTSAudit
@@ -479,7 +489,7 @@ endif
 
 *** Handle regular hours 
 lcRegHours = extract(tcFieldHeader, ;
-					"((TT_TYPE='H' and not (TT_OPT in (", ")")
+					"((TT_TYPE='H' and not inlist(TT_OPT,", ")")
 
 if !empty(lcRegHours) and !used("qCNTH")
 	return 
@@ -498,7 +508,7 @@ store null to aTBArray
 
 *** Handle absences 
 lcAbsences = extract(tcFieldHeader, ;
-			"(TT_TYPE='A' and not (TT_OPT in (", ")")
+			"(TT_TYPE='A' and not inlist(TT_OPT,", ")")
 
 if !empty(lcAbsences) and !used("qCNTA")
 	return 
@@ -914,7 +924,8 @@ case upper(pName) = "NWORKDPY"
 			"T - Total number of working days per year ")
 case upper(pName) = "NYTDBANKDEPOSIT" 
 	lcObjDesc = iif(gcLang="F", ;
-			"Renflouement déposé dans la banque jusqu'à date","Entitlement deposited in bank to date")
+			"Renflouement déposé dans la banque jusqu'à date",;
+					"Entitlement deposited in bank to date")
 case upper(pName) = "NYTDSICKDAYS" 
 	lcObjDesc = iif(gcLang="F", ;
 			"Année à ce jour les jours de maladie","YTD sick days")
@@ -922,17 +933,20 @@ case upper(pName) = "NYTDSICKHH"
 	lcObjDesc = iif(gcLang="F", ;
 			"Année à ce jour les heures de maladie","YTD sick hours")
 case upper(pName) = "NAPTOTVACHH" 
-	lcObjDesc = iif(gcLang="F","Nombre d'heures accumulées (estimation)","Number of hours accumulated (estimation)")
+	lcObjDesc = iif(gcLang="F","Nombre d'heures accumulées (estimation)", ;
+			"Number of hours accumulated (estimation)")
 case upper(pName) = "NAPTOTVACDAYS" 
 	lcObjDesc = iif(gcLang="F","Nombre de jours accumulées","Number of days accumulated")
 case upper(pName) = "NGTTOTVACHH" 
-	lcObjDesc = iif(gcLang="F","Nombre d'heures accumulées (estimation)","Number of hours accumulated (estimation)")
+	lcObjDesc = iif(gcLang="F","Nombre d'heures accumulées (estimation)",;
+			"Number of hours accumulated (estimation)")
 case upper(pName) = "NGTTOTVACDAYS" 
 	lcObjDesc = iif(gcLang="F","Nombre de jours accumulées","Number of days accumulated")
 case upper(pName) = "CPAYNO" 
 	lcObjDesc = iif(gcLang="F","Période de paie (Carver)","Pay period (Carver)")
 case upper(pName) = "NSFPQPAYNO" 
-	lcObjDesc = iif(gcLang="F","Estimation de la période de paie (SFPQ)","Estimation of pay period (SFPQ)")
+	lcObjDesc = iif(gcLang="F","Estimation de la période de paie (SFPQ)",;
+			"Estimation of pay period (SFPQ)")
 endcase 
 
 return lcObjDesc 

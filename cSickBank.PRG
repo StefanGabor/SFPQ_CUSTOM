@@ -67,8 +67,8 @@ nSEB_OVERTIMEDAYSPERYEAR = 5			&& SEB maximum overtime days per year
 
 *** Property 
 cLogStatus 	= "startlog.txt" 			&& start logging 
-cLogPath = "\TEMP\" 						&& log folder 
-_DEBUG = .T.								&& set .T. for debugging 
+cLogPath = "" 								&& log folder 
+_DEBUG = .f.								&& set .T. for debugging 
 oRS = null									&& Object container 
 
 *=========================================================
@@ -93,6 +93,12 @@ endif
 if !this.ValidateEntitlement(toRS)
 	this.SpoolObjectProperties(toRS)
 	return toRS 
+endif 
+
+*** Set the log path 
+if type("goIni.Temp") = "C" ;
+and !empty(goIni.Temp)
+	this.cLogPath = addbs(alltrim(goIni.Temp))
 endif 
 
 this.oRS = toRS
@@ -178,13 +184,13 @@ if empty(.nPersId) and type("lnPersId") = "N"
 	.nPersId = lnPersId
 endif
 if empty(.cPlanId)
-	.cPlanId = trim(qAPLAN.AP_PLANID)
+	.cPlanId = alltrim(qAPLAN.AP_PLANID)
 endif	
 if empty(.cBankId)
-	.cBankId = trim(qAPLAN.AP_BANKID)
+	.cBankId = alltrim(qAPLAN.AP_BANKID)
 endif	
 if empty(.cDepositOPT)
-	.cDepositOPT = trim(qAPLAN.AP_DEPOOPT)
+	.cDepositOPT = alltrim(qAPLAN.AP_DEPOOPT)
 endif 
 
 loBizJobhist = GetBiz("JOBHIST")
@@ -202,17 +208,17 @@ endif
 
 *** Load union into object 
 if empty(.cUnionId)
-	.cUnionId = trim(qqJH.H_UNION)
+	.cUnionId = alltrim(qqJH.H_UNION)
 endif	
 
 *** Load schedule id into object 
 if empty(.cSchedId)
-	.cSchedId = trim(qqJH.H_SCHEDID)
+	.cSchedId = alltrim(qqJH.H_SCHEDID)
 endif 
 
 *** Load pay group into object 
 if empty(.cPayGRP)
-	.cPayGRP = trim(qqJH.H_PAYGRP)
+	.cPayGRP = alltrim(qqJH.H_PAYGRP)
 endif 
 
 *** Load jobhist effdt into object 
@@ -243,8 +249,8 @@ if tnSenMths > 0
 endif 	
 
 *** Different date field for seniority 
-if used("vPERS") and !empty(qAPLAN.AP_SENDT)
-	ldSeniorField = trim(qAPLAN.AP_SENDT)
+if used("vPERS") and !empty(alltrim(qAPLAN.AP_SENDT))
+	ldSeniorField = alltrim(qAPLAN.AP_SENDT)
 	ldSeniorField = strtran(ldSeniorField, "PERS", "vPERS")
 	ldSeniorField = evaluate(ldSeniorField)
 
@@ -256,33 +262,36 @@ endif
 .dOriginalHiredDt = qqJH.E_ORIGHIRE 
 
 *** Current Year Entitlement 
-.dStartDt = qAPLAN.AP_EFFDT
-.dEndDt = qAPLAN.AP_ENDDT
+if empty(.dStartDt)
+	.dStartDt = qAPLAN.AP_EFFDT
+endif 	
+if empty(.dEndDt)
+	.dEndDt = qAPLAN.AP_ENDDT
+endif 
 
 *** Last year entitlement dates 
-.dLYStartDt = ;
-	MONDAY(date(year(.dStartDt)-1,month(.dStartDt),day(.dStartDt))+7, 7)
-.dLYEndDt = .dStartDt - 1 
+.dLYStartDt = gomonth(.dStartDt, -12)
+.dLYEndDt = gomonth(.dEndDt, -12)
 
 llMonthlyCalc = ToLogical(qAPLAN.AP_MCALC)
 llYearlyCalc = ToLogical(qAPLAN.AP_YCALC)
 
 *** Get the counter - Monthly deposit 
 if llMonthlyCalc 
-	.cTCNT = trim(qAPLAN.AP_MTCNT)
+	.cTCNT = alltrim(qAPLAN.AP_MTCNT)
 endif 
 	
 *** Yearly deposit 
 if llYearlyCalc
-	.cTCNT = trim(qAPLAN.AP_YTCNT)
+	.cTCNT = alltrim(qAPLAN.AP_YTCNT)
 endif 
 
 *** Get MAX & MIN of the plan 
 if val(qAPLAN.AP_BALMIN) != 0 ;
-or empty(qAPLAN.AP_BALMIN)
+or empty(alltrim(qAPLAN.AP_BALMIN))
 	.nPlanBalMin = val(qAPLAN.AP_BALMIN)
 else 
-	lcMINBalance = trim(qAPLAN.AP_BALMIN)
+	lcMINBalance = alltrim(qAPLAN.AP_BALMIN)
 
 	do case 
 	case used("qJobhist") 
@@ -295,10 +304,10 @@ else
 endif 	
 
 if val(qAPLAN.AP_BALMAX) != 0 ;
-or empty(qAPLAN.AP_BALMAX)
+or empty(alltrim(qAPLAN.AP_BALMAX))
 	.nPlanBalMax = val(qAPLAN.AP_BALMAX)
 else 
-	lcMAXBalance = trim(qAPLAN.AP_BALMAX)
+	lcMAXBalance = alltrim(qAPLAN.AP_BALMAX)
 
 	do case 
 	case used("qJobhist") 
@@ -311,7 +320,7 @@ else
 endif 
 
 *** Get the bank unit HOURS or DAYS 
-.cBankUnit = trim(tbleval("TIMEBANK", .cBankId, "TBLC1"))
+.cBankUnit = alltrim(tbleval("TIMEBANK", .cBankId, "TBLC1"))
 
 loBizSched = GetBiz("SCHED")
 if isnull(loBizSched)
@@ -382,9 +391,9 @@ this.GetPRORATAEntitlement(.dStartDt, .dEndDt)
 
 *** Plan specific stuff 
 if lower(pemstatus(this, "GetMethod_" + ;
-	trim(.cPlanId), 3)) = "method"
+	alltrim(.cPlanId), 3)) = "method"
 	
-	lcCommand = "this.GetMethod_"+trim(.cPlanId)+"()"
+	lcCommand = "this.GetMethod_"+alltrim(.cPlanId)+"()"
 	return &lcCommand
 endif 
 
@@ -1399,6 +1408,7 @@ addproperty(loR, "cTABLE", "")
 **** Rules
 addproperty(loR, "nWorkDPY", 0)
 addproperty(loR, "nEntitleDPY", 0)
+addproperty(loR, "nABSAdjAMT", 0)
 
 *** Vacation rule matrix 
 addproperty(loR, "cRuleMatrix", "")
@@ -1433,7 +1443,7 @@ endif
 for lnN = 1 to alen(gaRS, 1)
 	lcAsisField = "toR." + alltrim(gaRS[lnN, 1])
 	lcMemo = lcMemo + ;
-			trim(lcAsisField) + "=" + ;
+			alltrim(lcAsisField) + "=" + ;
 			transform(evaluate(lcAsisField))+CRLF 
 next 
 
@@ -1490,14 +1500,14 @@ if !._DEBUG or empty(.cLogPath)
 	return 
 endif 
 	
-pcLog = trim(pcLog) + chr(13) + chr(10) 
+pcLog = alltrim(pcLog) + chr(13) + chr(10) 
 lcLogfile = .cLogPath + "_" + ;
-	leftto(lower(trim(transform(program()))),".")+".log"
+	leftto(lower(alltrim(transform(program()))),".")+".log"
 
 lcStartLog=.cLogPath+.cLogStatus
 if file(lcStartLog)
 	=strtofile(transform(datetime()) + " - " + ;
-			trim(pcLog), lcLogfile, .t.)
+			alltrim(pcLog), lcLogfile, .t.)
 endif 
 
 endwith 
