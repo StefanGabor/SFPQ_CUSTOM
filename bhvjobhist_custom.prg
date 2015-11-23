@@ -145,17 +145,8 @@ lnRecordNo = recno("vJobhist")
 *
 lnSelect = select()
 
-*** Get original index records 
-use in select("qJobhist")
-select H_PERSID,H_EFFDT,H_ONDATE,H_UNIQID, ;
-		 	00000000000.00 as vvOANNUAL ;
-from vJobHist readwrite ;
-Into cursor qJobhist
-
-if reccount("qJobhist")<=0
-	select(lnSelect)
-	return 
-endif 
+*** Add current record to a cursor  
+this.AddRecord() 
 
 select qJobHist
 index on iif(empty(H_ONDATE), "99999999", dtos(H_ONDATE)) + ;
@@ -190,8 +181,9 @@ procedure SaveGovntSalaryFromForm()
 * "H__OANNUAL" encrypted. 
 *
 local lnSelect 
+
 if !used("qJobhist") 
-	return
+	this.AddRecord()
 endif 
 
 lnSelect = select()
@@ -211,8 +203,9 @@ procedure BeforeRefresh()
 dodefault()
 
 if !used("qJobhist") 
-	return
+	this.AddRecord()
 endif 
+
 this.nTAnnual= vJobhist.vvAnnual + qJobhist.vvOAnnual
 
 return 
@@ -258,7 +251,7 @@ procedure Flush()
 dodefault()
 
 if !used("qJobhist") 
-	return
+	this.AddRecord()
 endif 
 
 this.SaveGovntSalaryFromForm()
@@ -271,7 +264,7 @@ local llOk
 llOk = .T. 
 
 if !used("qJobhist") 
-	return
+	this.AddRecord()
 endif 
 
 if !empty(this.nTAnnual)
@@ -292,7 +285,7 @@ local llOk
 llOk = .T. 
 
 if !used("qJobhist") 
-	return
+	this.AddRecord()
 endif 
 
 if !empty(qJobHist.vvOAnnual) ;
@@ -304,6 +297,44 @@ and !empty(this.nTAnnual)
 		this.CancelRec()
 	endif 	
 endif 
+
+return 
+
+*=========================================================
+procedure CreateCursor()
+*
+with this 
+
+use in select("qJobHist")
+create cursor qJobHist ;
+	( H_PERSID N(8), H_EFFDT D, H_ONDATE D, ;
+		H_UNIQID C(16), vvOANNUAL N(14,2) )
+
+endwith 
+
+return 
+
+*=========================================================
+procedure AddRecord()
+***
+*
+local lnSelect 
+
+if !used("vJobhist") ;
+or reccount("vJobhist")<=0 
+	return 
+endif 
+
+lnSelect = select()
+
+this.CreateCursor()
+
+insert into qJobHist( H_PERSID, H_EFFDT, ;
+		H_ONDATE, H_UNIQID, vvOANNUAL) ;
+values (vJobhist.H_PERSID, vJobhist.H_EFFDT, ;
+		vJobhist.H_ONDATE, vJobhist.H_UNIQID, 0)
+			
+select ( lnSelect )
 
 return 
 
@@ -400,8 +431,6 @@ endif
 
 return 
 endproc
-
-
 
 enddefine
 *#########################################################

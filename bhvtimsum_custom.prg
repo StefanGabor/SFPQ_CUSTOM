@@ -19,19 +19,19 @@
 
 
 *==========================================================
-procedure cmdInquiry_Valid(poThis)
+procedure cmdInquiry_Valid( tnPersId )
 ***
 *
 local loException 
 store null to loException 
 
-if isnull(poThis)
+if empty(tnPersId)
 	return 
 endif 	
 
 try 
 
-	do T28.PRG
+	do T28.PRG with tnPersId 
 
 catch to loException 
 
