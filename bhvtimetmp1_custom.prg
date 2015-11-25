@@ -2705,13 +2705,13 @@ for lnI = 1 to alen(laReportList, 1)
 next 
 
 if .oThisform.pgf1.activepage = 1
-    do quickprint with "/dest=prompt", lcList, ;
+    do quickprint_custom with "/DEST=PDF", lcList, ;
     		"between(TT_BATCH,'"+left(.cBatch, 9) + ;
     		"','"+left(.cBatch, 9)+"~')"+;
     		" and TT_PERSID="+transform(.PersId), ;
     		OPTIONS
 else 
-	do quickprint with "/dest=prompt", lcList2, ;
+	do quickprint_custom with "/DEST=PDF", lcList2, ;
 			"TT_BATCH='"+.cBatch+"'", OPTIONS
 endif
 
